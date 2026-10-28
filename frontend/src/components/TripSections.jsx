@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Bookmark, Check, Heart, Plus, Send, Waves, X 
 import SectionHeading from './SectionHeading';
 import { photos } from '../data/goa';
 
-export function TripsSection({ trips, checklist, onPlan, onDeleteTrip, onToggleChecklist, onDeleteChecklist, onAddChecklist }) {
+export function TripsSection({ trips, checklist, copy, onPlan, onDeleteTrip, onToggleChecklist, onDeleteChecklist, onAddChecklist }) {
   const [newItem, setNewItem] = useState('');
   const addItem = event => {
     event.preventDefault();
@@ -13,7 +13,7 @@ export function TripsSection({ trips, checklist, onPlan, onDeleteTrip, onToggleC
     setNewItem('');
   };
 
-  return <section className="section trip-section" id="trips"><SectionHeading eyebrow="YOUR LITTLE CORNER OF GOA" title="Trips & little things." text="Plans you’ve saved and things you don’t want to forget." /><div className="trips-grid">
+  return <section className="section trip-section" id="trips"><SectionHeading {...copy} /><div className="trips-grid">
     <div className="trips-panel"><div className="panel-title"><span className="panel-icon"><Bookmark size={17} /></span><div><h3>Your saved trips</h3><span>{trips.length} {trips.length === 1 ? 'little escape' : 'little escapes'}</span></div><button onClick={onPlan} className="round-add" aria-label="Plan a trip"><Plus size={17} /></button></div>
       {trips.length ? trips.map(trip => <div className="saved-trip" key={trip.id}><div className="trip-thumb" style={{ backgroundImage: `url(${photos.palolem})` }} /><div className="saved-trip-text"><b>{trip.title}</b><span>{trip.dates} · {trip.travelers} travellers</span></div><button onClick={onPlan}><ArrowRight size={16} /></button><button onClick={() => onDeleteTrip(trip.id)} aria-label={`Delete ${trip.title}`}><X size={15} /></button></div>) : <div className="panel-empty"><span className="empty-sun">☼</span><b>Your next story starts here.</b><p>Make a plan that feels like you. Save it for later.</p><button className="mini-cta" onClick={onPlan}>Plan a little getaway <ArrowRight size={14} /></button></div>}
     </div>
@@ -25,15 +25,16 @@ export function TripsSection({ trips, checklist, onPlan, onDeleteTrip, onToggleC
   </div></section>;
 }
 
-export function AssistantSection({ messages, chatText, thinking, onChatTextChange, onSend }) {
-  return <section className="section assistant-section" id="assistant"><SectionHeading eyebrow="A FRIEND IN YOUR POCKET" title="Ask Tide anything." text="A little help with where to go, what to eat, and how to get there." /><div className="assistant-layout">
-    <div className="assistant-copy"><div className="assistant-avatar"><Waves size={24} /><span /></div><span className="pill demo-pill">DEMO ASSISTANT</span><h3>Curious about<br /><em>something?</em></h3><p>Local ideas, gentle nudges, and helpful answers while you find your Goa.</p><div className="suggested"><span>TRY ASKING</span>{['What should I eat in Goa?', 'Tell me about South Goa', 'How much should I budget?'].map(question => <button onClick={() => onSend(question)} key={question}>{question}<ArrowUpRight size={14} /></button>)}</div></div>
+export function AssistantSection({ messages, chatText, thinking, copy, onChatTextChange, onSend }) {
+  const prompts = copy.prompts.split('|').filter(Boolean);
+  return <section className="section assistant-section" id="assistant"><SectionHeading eyebrow={copy.eyebrow} title={copy.title} text={copy.text} /><div className="assistant-layout">
+    <div className="assistant-copy"><div className="assistant-avatar"><Waves size={24} /><span /></div><span className="pill demo-pill">DEMO ASSISTANT</span><h3>Curious about<br /><em>something?</em></h3><p>Local ideas, gentle nudges, and helpful answers while you find your Goa.</p><div className="suggested"><span>TRY ASKING</span>{prompts.map(question => <button onClick={() => onSend(question)} key={question}>{question}<ArrowUpRight size={14} /></button>)}</div></div>
     <div className="chat-box"><div className="chat-header"><span className="chat-live" /><div><b>Tide</b><small>Your Goa sidekick · Demo mode</small></div><span className="chat-header-spark">✦</span></div><div className="chat-messages">{messages.map((message, index) => <div className={`message ${message.from}`} key={`${message.from}-${index}`}>{message.from === 'ai' && <span className="msg-avatar"><Waves size={12} /></span>}<p>{message.text}</p></div>)}{thinking && <div className="message ai"><span className="msg-avatar"><Waves size={12} /></span><p className="typing"><i /><i /><i /></p></div>}</div>
       <form className="chat-input" onSubmit={event => { event.preventDefault(); onSend(); }}><input value={chatText} onChange={event => onChatTextChange(event.target.value)} placeholder="Ask me anything about Goa…" /><button aria-label="Send message" disabled={!chatText.trim() || thinking}><Send size={16} /></button></form><div className="chat-foot">A demo conversation · AI recommendations coming soon</div>
     </div>
   </div></section>;
 }
 
-export function ProfileSection({ favoriteCount, onPlan }) {
-  return <section className="section profile-section" id="profile"><div className="profile-card"><div className="profile-avatar">A</div><div className="profile-copy"><div className="eyebrow">YOUR TRAVEL PROFILE</div><h3>Travel, the way you like it.</h3><p>Beach mornings, food adventures, a comfortable budget. We’ll remember the little things.</p></div><div className="profile-prefs"><span><Waves size={14} /> Beach person</span><span><span className="rupee">₹</span> Comfort budget</span><span><Heart size={14} /> {favoriteCount} saved {favoriteCount === 1 ? 'spot' : 'spots'}</span></div><button className="btn btn-outline" onClick={onPlan}>Update preferences <ArrowRight size={15} /></button></div></section>;
+export function ProfileSection({ content, actionLabel, favoriteCount, onPlan }) {
+  return <section className="section profile-section" id="profile"><div className="profile-card"><div className="profile-avatar">A</div><div className="profile-copy"><div className="eyebrow">YOUR TRAVEL PROFILE</div><h3>{content.title}</h3><p>{content.description}</p></div><div className="profile-prefs"><span><Waves size={14} /> {content.preference}</span><span><span className="rupee">₹</span> {content.budget}</span><span><Heart size={14} /> {favoriteCount} saved {favoriteCount === 1 ? 'spot' : 'spots'}</span></div><button className="btn btn-outline" onClick={onPlan}>{actionLabel} <ArrowRight size={15} /></button></div></section>;
 }
