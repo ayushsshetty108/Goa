@@ -10,6 +10,7 @@
     "start": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "autoprefixer": "^10.4.20",
     "axios": "^1.21.0",
     "concurrently": "^9.1.2",

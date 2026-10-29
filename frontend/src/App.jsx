@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Waves } from 'lucide-react';
 import { createItinerary, getAssistantReply } from './services/ai';
 import { api } from './services/api';
+import { supabase } from '../lib/supabaseClient';
 import { defaultSiteContent } from './data/goa';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -9,6 +11,7 @@ import ItineraryDrawer from './components/ItineraryDrawer';
 import { HeroSection, DealsSection, PlacesSection, GuideBanner, GuideSection } from './components/HomeSections';
 import { TripsSection, AssistantSection, ProfileSection } from './components/TripSections';
 import AdminPage from './components/AdminPage';
+import AuthScreen from './components/AuthScreen';
 
 function readStoredValue(key, fallback) {
   try {
@@ -37,15 +40,15 @@ function readSiteContent() {
 }
 
 export default function App() {
+  const [authSession, setAuthSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [active, setActive] = useState('Home');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
-  const [favorites, setFavorites] = useState(() => readStoredValue('tideFavorites', [2]));
+  const [favorites, setFavorites] = useState([]);
   const [favoriteRecords, setFavoriteRecords] = useState([]);
-  const [trips, setTrips] = useState(() => readStoredValue('tideTrips', []));
-  const [checklist, setChecklist] = useState(() => readStoredValue('tideList', [
-    { name: 'Sunscreen', done: false }, { name: 'Swimwear', done: false }, { name: 'Light layers', done: true },
-  ]));
+  const [trips, setTrips] = useState([]);
+  const [checklist, setChecklist] = useState([]);
   const [showPlanner, setShowPlanner] = useState(false);
   const [trip, setTrip] = useState(null);
   const [travelers, setTravelers] = useState(2);
@@ -58,55 +61,70 @@ export default function App() {
   const [siteContent, setSiteContent] = useState(readSiteContent);
   const apiLoadStarted = useRef(false);
 
-  useEffect(() => localStorage.setItem('tideTrips', JSON.stringify(trips)), [trips]);
-  useEffect(() => localStorage.setItem('tideList', JSON.stringify(checklist)), [checklist]);
-  useEffect(() => localStorage.setItem('tideFavorites', JSON.stringify(favorites)), [favorites]);
+  useEffect(() => {
+    if (!supabase) { setAuthLoading(false); return undefined; }
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) console.error('Could not restore the Supabase session:', error.message);
+      setAuthSession(data?.session ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session);
+      setAuthLoading(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (authSession?.access_token) api.defaults.headers.common.Authorization = `Bearer ${authSession.access_token}`;
+    else delete api.defaults.headers.common.Authorization;
+  }, [authSession?.access_token]);
+
   useEffect(() => localStorage.setItem('tideSiteContent', JSON.stringify(siteContent)), [siteContent]);
 
   useEffect(() => {
-    if (apiLoadStarted.current) return;
+    if (!authSession?.user?.id) {
+      apiLoadStarted.current = false;
+      setTrips([]);
+      setChecklist([]);
+      setFavorites([]);
+      setFavoriteRecords([]);
+      setMessages([{ from: 'ai', text: 'Hey, I’m Tide. Tell me what kind of Goa you’re dreaming of. 🌴' }]);
+      return undefined;
+    }
+    if (apiLoadStarted.current) return undefined;
     apiLoadStarted.current = true;
+    let cancelled = false;
 
     const loadCollections = async () => {
-      const [remoteTrips, remoteChecklist, remoteFavorites] = await Promise.allSettled([
-        api.get('/trips'), api.get('/checklists'), api.get('/favorites'),
+      await api.get('/me');
+      const [remoteTrips, remoteChecklist, remoteFavorites, remoteMessages] = await Promise.allSettled([
+        api.get('/trips'), api.get('/checklists'), api.get('/favorites'), api.get('/messages'),
       ]);
 
+      if (cancelled) return;
       if (remoteTrips.status === 'fulfilled') {
         const records = remoteTrips.value.data.map(record => ({ ...record, id: record.id ?? record._id }));
-        if (records.length) setTrips(records);
-        else {
-          const local = readStoredValue('tideTrips', []);
-          if (local.length) {
-            const imported = await Promise.all(local.map(record => api.post('/trips', record).then(response => ({ ...response.data, id: response.data._id }))));
-            setTrips(imported);
-          }
-        }
+        setTrips(records);
       }
 
       if (remoteChecklist.status === 'fulfilled') {
-        const records = remoteChecklist.value.data;
-        if (records.length) setChecklist(records);
-        else {
-          const local = readStoredValue('tideList', [{ name: 'Sunscreen', done: false }, { name: 'Swimwear', done: false }, { name: 'Light layers', done: true }]);
-          const imported = await Promise.all(local.map(item => api.post('/checklists', item).then(response => response.data)));
-          setChecklist(imported);
-        }
+        setChecklist(remoteChecklist.value.data);
       }
 
       if (remoteFavorites.status === 'fulfilled') {
-        let records = remoteFavorites.value.data;
-        if (!records.length) {
-          const local = readStoredValue('tideFavorites', [2]);
-          records = await Promise.all(local.map(destinationId => api.post('/favorites', { destinationId: String(destinationId) }).then(response => response.data)));
-        }
+        const records = remoteFavorites.value.data;
         setFavoriteRecords(records);
         setFavorites(records.map(record => Number(record.destinationId)));
       }
+      if (remoteMessages.status === 'fulfilled' && remoteMessages.value.data.length) {
+        setMessages(remoteMessages.value.data.map(message => ({ from: message.role === 'assistant' ? 'ai' : 'user', text: message.content })));
+      }
     };
 
-    loadCollections().catch(error => console.error('Could not sync Goa planner data with the API:', error));
-  }, []);
+    loadCollections().catch(error => console.error('Could not load this account’s Goa planner data:', error));
+    return () => { cancelled = true; };
+  }, [authSession?.user?.id]);
 
   const filteredDestinations = useMemo(() => siteContent.destinations.filter(destination =>
     (filter === 'All' || destination.type === filter) &&
@@ -124,8 +142,8 @@ export default function App() {
     else document.getElementById('home')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const submitTripDetails = tripDetails => {
-    console.log('GoTrip AI trip request:', tripDetails);
+  const submitTripDetails = async tripDetails => {
+    await api.post('/trip-requests', tripDetails);
     setShowPlanner(false);
   };
 
@@ -136,8 +154,8 @@ export default function App() {
       const savedTrip = { ...response.data, id: response.data._id };
       setTrips(current => [savedTrip, ...current]);
       setTrip(savedTrip);
-    } catch {
-      setTrips(current => [trip, ...current]);
+    } catch (error) {
+      console.error('Could not save this trip to your account:', error);
     }
   };
 
@@ -153,8 +171,8 @@ export default function App() {
     try {
       const response = await api.post('/checklists', { name, done: false });
       setChecklist(current => [...current, response.data]);
-    } catch {
-      setChecklist(current => [...current, { name, done: false }]);
+    } catch (error) {
+      console.error('Could not save this checklist item to your account:', error);
     }
   };
 
@@ -162,9 +180,11 @@ export default function App() {
     const item = checklist[index];
     if (!item) return;
     const updated = { ...item, done: !item.done };
-    setChecklist(current => current.map((entry, itemIndex) => itemIndex === index ? updated : entry));
     if (item._id) {
-      try { await api.put(`/checklists/${item._id}`, { done: updated.done }); } catch (error) { console.error('Could not update checklist item in the API:', error); }
+      try {
+        const response = await api.put(`/checklists/${item._id}`, { done: updated.done });
+        setChecklist(current => current.map((entry, itemIndex) => itemIndex === index ? response.data : entry));
+      } catch (error) { console.error('Could not update checklist item in the API:', error); }
     }
   };
 
@@ -178,19 +198,21 @@ export default function App() {
 
   const toggleFavorite = async destinationId => {
     if (favorites.includes(destinationId)) {
-      setFavorites(current => current.filter(id => id !== destinationId));
       const record = favoriteRecords.find(item => Number(item.destinationId) === destinationId);
-      setFavoriteRecords(current => current.filter(item => item !== record));
       if (record?._id) {
-        try { await api.delete(`/favorites/${record._id}`); } catch (error) { console.error('Could not remove favorite from the API:', error); }
+        try {
+          await api.delete(`/favorites/${record._id}`);
+          setFavoriteRecords(current => current.filter(item => item._id !== record._id));
+          setFavorites(current => current.filter(id => id !== destinationId));
+        } catch (error) { console.error('Could not remove favorite from the API:', error); }
       }
       return;
     }
 
-    setFavorites(current => [...current, destinationId]);
     try {
       const response = await api.post('/favorites', { destinationId: String(destinationId) });
       setFavoriteRecords(current => [...current, response.data]);
+      setFavorites(current => [...current, destinationId]);
     } catch (error) { console.error('Could not save favorite to the API:', error); }
   };
 
@@ -200,8 +222,17 @@ export default function App() {
     setMessages(current => [...current, { from: 'user', text: userText }]);
     setChatText('');
     setThinking(true);
+    try {
+      await api.post('/messages', { role: 'user', content: userText });
+    } catch (error) {
+      setThinking(false);
+      console.error('Could not save your message to your account:', error);
+      return;
+    }
     const reply = await getAssistantReply(userText);
     setMessages(current => [...current, { from: 'ai', text: reply }]);
+    try { await api.post('/messages', { role: 'assistant', content: reply }); }
+    catch (error) { console.error('Could not save the assistant reply to your account:', error); }
     setThinking(false);
   };
 
@@ -222,9 +253,19 @@ export default function App() {
     return <AdminPage siteContent={siteContent} onSaveContent={setSiteContent} onBackToSite={() => window.location.assign('/')} />;
   }
 
+  if (authLoading) return <main className="auth-loading"><span className="brand-mark"><Waves /></span><p>Finding your place by the sea…</p></main>;
+  if (!authSession) return <AuthScreen />;
+
+  const account = authSession.user;
+  const accountName = account.user_metadata?.full_name || account.user_metadata?.name || account.email;
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error('Could not sign out:', error.message);
+  };
+
   return (
     <div className="app-shell">
-      <Navbar active={active} mobileMenu={mobileMenu} labels={siteContent.ui.navigation} onNavigate={navigate} onToggleMenu={() => setMobileMenu(open => !open)} />
+      <Navbar active={active} mobileMenu={mobileMenu} labels={siteContent.ui.navigation} user={{ email: account.email, name: accountName }} onSignOut={signOut} onNavigate={navigate} onToggleMenu={() => setMobileMenu(open => !open)} />
       <main>
         <HeroSection content={siteContent.hero} labels={siteContent.ui} onPlan={() => setShowPlanner(true)} onExplore={() => navigate('Places to Visit', 'places')} />
         <DealsSection deals={siteContent.deals} copy={siteContent.copy.deals} onExplore={() => navigate('Places to Visit', 'places')} />

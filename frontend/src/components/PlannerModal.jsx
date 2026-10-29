@@ -24,8 +24,11 @@ const initialForm = {
 export default function PlannerModal({ open, onClose, onSubmit }) {
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const updateField = (name, value) => {
+    setSubmitError('');
     setForm(current => ({ ...current, [name]: value }));
     setErrors(current => {
       const next = { ...current };
@@ -66,13 +69,13 @@ export default function PlannerModal({ open, onClose, onSubmit }) {
     return nextErrors;
   };
 
-  const handleSubmit = event => {
+  const handleSubmit = async event => {
     event.preventDefault();
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    onSubmit({
+    const tripDetails = {
       startingLocation: form.startingLocation.trim(),
       destination: form.destination.trim(),
       tripDates: { startDate: form.tripStartDate, endDate: form.tripEndDate },
@@ -86,7 +89,18 @@ export default function PlannerModal({ open, onClose, onSubmit }) {
         pace: form.pace || null,
       },
       additionalRequirements: form.additionalRequirements.trim(),
-    });
+    };
+    setSubmitError('');
+    setSubmitting(true);
+    try {
+      await onSubmit(tripDetails);
+      setForm(initialForm);
+      setErrors({});
+    } catch (error) {
+      setSubmitError(error.response?.data?.error || 'We couldn’t save your trip details. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const errorFor = name => errors[name] && <span className="planner-field-error" id={`${name}-error`} role="alert">{errors[name]}</span>;
@@ -120,8 +134,9 @@ export default function PlannerModal({ open, onClose, onSubmit }) {
           <label className="field"><span>TRAVEL PACE <small>OPTIONAL</small></span><select className="planner-select" value={form.pace} onChange={event => updateField('pace', event.target.value)}><option value="">Choose a pace</option><option value="relaxed">Relaxed</option><option value="moderate">Moderate</option><option value="packed">Packed</option></select></label>
           <label className="field full-field"><span>ADDITIONAL REQUIREMENTS <small>OPTIONAL</small></span><textarea className="planner-textarea" value={form.additionalRequirements} onChange={event => updateField('additionalRequirements', event.target.value)} placeholder="Anything else we should know?" rows="3" /></label>
         </div>
-        <button className="btn btn-orange modal-submit" type="submit"><Sparkles size={16} /> Make My Trip <ArrowRight size={16} /></button>
-        <div className="modal-foot">Trip details will be logged for this demo · No AI call is made</div>
+        {submitError && <p className="planner-submit-error" role="alert">{submitError}</p>}
+        <button className="btn btn-orange modal-submit" type="submit" disabled={submitting}><Sparkles size={16} /> {submitting ? 'Saving your trip…' : 'Make My Trip'} <ArrowRight size={16} /></button>
+        <div className="modal-foot">Your trip details are saved to your account · No AI call is made</div>
       </form>
     </motion.div>
   </motion.div>}</AnimatePresence>;
